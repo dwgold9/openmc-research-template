@@ -50,20 +50,19 @@ openmc-research-template/
 │   ├── core/
 │   │   ├── models/
 │   │   │   ├── registry.py
-│   │   │   ├── model_example.py
+│   │   │   └── model_example.py
 │   │   ├── tallies/
 │   │   │   ├── registry.py
-│   │   │   ├── tally_example.py
+│   │   │   └── tally_example.py
 │   │   ├── artifacts/
 │   │   │   ├── registry.py
-│   │   │   ├── artifact_example.py
+│   │   │   └── artifact_example.py
 │   │   ├── metrics/
 │   │   │   ├── registry.py
-│   │   │   ├── metric_example.py
+│   │   │   └── metric_example.py
 │   │
-│   └── cli/
-│       ├── simulate.py
-│       └── analyze.py
+│   ├── simulate.py
+│   └── analyze.py
 |
 ├── studies/
 │   └── example_run/
