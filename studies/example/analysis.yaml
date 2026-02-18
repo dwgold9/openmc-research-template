@@ -1,0 +1,7 @@
+name: example
+metrics:
+ - keff
+
+artifacts:
+  - flux_1D_plot:
+      tally: flux-distribution-1D

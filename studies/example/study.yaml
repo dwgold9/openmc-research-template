@@ -1,0 +1,33 @@
+name: example
+model: reference
+plot:
+  - plot1:
+      basis: 'xz'
+      width: [200, 200]
+      pixels: 1000000
+      color_by: 'material'
+  - plot2:
+      basis: 'yz'
+      width: [200, 200]
+      pixels: 1000000
+      color_by: 'material'
+params: 
+  particles: 1000
+  N_tubes_y: [5, 10]
+  N_tubes_z: [5, 10]
+tallies:
+## case 1
+  - integral-set
+## case 2
+  - flux-distribution-1d:
+      energy_bins: [0, 0.625, 20.e+6]
+## case 3
+  - flux-distribution-1d:
+      50points:
+        num_points: 50
+
+      100points:
+        num_points: 100
+
+
+
