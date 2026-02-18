@@ -46,28 +46,26 @@ This template is built around several principles:
 ```
 openmc-research-template/
 │
-├── src/research/
-│   ├── core/
-│   │   ├── models/
-│   │   │   ├── registry.py
-│   │   │   └── model_example.py
-│   │   ├── tallies/
-│   │   │   ├── registry.py
-│   │   │   └── tally_example.py
-│   │   ├── artifacts/
-│   │   │   ├── registry.py
-│   │   │   └── artifact_example.py
-│   │   ├── metrics/
-│   │   │   ├── registry.py
-│   │   │   └── metric_example.py
-│   │
+├── core/
+│   ├── models/
+│       ├── registry.py
+│       └── model_example.py
+│   ├── tallies/
+│       ├── registry.py
+│       └── tally_example.py
+│   ├── artifacts/
+│       ├── registry.py
+│       └── artifact_example.py
+│   ├── metrics/
+│       ├── registry.py
+│       └── metric_example.py
 │   ├── simulate.py
 │   └── analyze.py
 |
-├── studies/
+├── runs/
 │   └── example_run/
-│       ├── study_frozen.yaml
-│       └── cases/
+│       ├── cases/
+│       └── study_frozen.yaml
 │
 ├── studies/
 │   └── example_study/
