@@ -12,9 +12,7 @@ plot:
       pixels: 1000000
       color_by: 'material'
 params: 
-  particles: 1000
-  N_tubes_y: [5, 10]
-  N_tubes_z: [5, 10]
+  particles: [100, 1000]
 tallies:
 ## case 1
   - integral-set
@@ -29,5 +27,11 @@ tallies:
       100points:
         num_points: 100
 
+metrics:
+ - study-aggregate:
+    meaasurement: keff
 
+artifacts:
+  - flux_1D_plot:
+      tally: flux-distribution-1D
 

@@ -5,13 +5,16 @@ import yaml
 # Ensure registries populate
 import core.metrics
 from core.metrics.registry import (
-    METRICS_REGISTRY,
+    METRICS_REGISTRY, get_metric_blocks, Scope
 )
 
 import core.artifacts
 from core.artifacts.registry import (
-    ARTIFACTS_REGISTRY,
+    ARTIFACTS_REGISTRY, get_artifact_blocks
 )
+
+import core.analysis
+from core.analysis import *
 
 
 # ---------------------------------------------------------
@@ -26,37 +29,6 @@ def load_yaml(path):
 def write_yaml(path, data):
     with open(path, "w") as f:
         yaml.safe_dump(data, f, sort_keys=False)
-
-
-# ---------------------------------------------------------
-# Context Builder
-# ---------------------------------------------------------
-
-def build_context(study_results_dir):
-
-    study_results_dir = Path(study_results_dir)
-
-    runs_dir = study_results_dir / "runs"
-
-    cases = []
-
-    if runs_dir.exists():
-        for case_dir in sorted(runs_dir.iterdir()):
-            if case_dir.is_dir():
-                cases.append({
-                    "case_dir": case_dir,
-                    "statepoint": case_dir / "statepoint.h5",
-                    "params": case_dir / "params.json",
-                })
-
-    context = {
-        "study_dir": study_results_dir,
-        "runs_dir": runs_dir,
-        "cases": cases,
-    }
-
-    return context
-
 
 # ---------------------------------------------------------
 # Requirement Checking
@@ -90,75 +62,82 @@ def check_artifact_requirements(func, results_store):
 # Processing Pipeline
 # ---------------------------------------------------------
 
-def process(study_name):
-    studies_root = Path("studies")
-    # load analysis
-    study_root = studies_root / study_name
-    analysis_path = study_root / 'analysis.yaml'
-    analysis = load_yaml(analysis_path)
+def analyze(cli_args):
 
-    context = build_context(study_root)
+    ## read command-line arguments
+    cli_study_name = cli_args.study
+    
+    studies_root = Path("studies")
+    # ------------------------
+    # load config
+    # ------------------------
+    config_path = studies_root / cli_study_name / "study.yaml"
+    with open(config_path, "r") as f:
+        cfg = yaml.safe_load(f)
+
+
+    # -----------------------
+    # required fields
+    # -----------------------
+    study_name = cfg["name"]
+
+    # direct to study/ and runs/
+    study_root = studies_root / study_name
+    runs_root = Path("runs") / study_name
+    
+    context = build_context(runs_root)
+    # -----------------------
+    # optional fields
+    # -----------------------
+    metric_entries = cfg.get("metrics", [])
+    artifact_entries = cfg.get("artifacts", {})
 
     results_store = {}
 
-    # Optional: observables list if you keep it in YAML
-    available_observables = set(
-        analysis.get("available_observables", [])
+    # Optional: tallies list if you keep it in YAML
+    available_tallies = set(
+        cfg.get("available_tallies", [])
     )
 
     # ------------------------------
     # METRICS
     # ------------------------------
-    for entry in analysis.get("metrics", []):
+    metric_blocks = get_metric_blocks(metric_entries)
 
-        if isinstance(entry, dict):
-            name = entry["name"]
-            cfg = entry
-        else:
-            name = entry
-            cfg = {}
+    for block in metric_blocks:
+        if block.scope == Scope.MEMBER:
+            for case in context.cases:
+                for member in case.members:
+                    block.execute(member)
 
-        if name not in METRICS_REGISTRY:
-            raise RuntimeError(f"Unknown result '{name}'")
+        elif block.scope == Scope.CASE:
+            for case in context.cases:
+                block.execute(case)
 
-        func = METRICS_REGISTRY[name]
+        elif block.scope == Scope.STUDY:
+            block.execute(context)
 
-        check_metric_requirements(func, available_observables)
-
-        print(f"[METRIC] {name}")
-
-        output = func(context, cfg)
-
-        results_store[name] = output
-
-    # Write results.yaml at study root
-    metrics_yaml_path = Path(study_results_dir) / "metrics.yaml"
-    write_yaml(metrics_yaml_path, results_store)
-
-    print(f"Wrote metrics.yaml → {metrics_yaml_path}")
+    print(f"Wrote metrics.yaml")
 
     # ------------------------------
-    # DELIVERABLES
+    # ARTIFACTS
     # ------------------------------
-    for entry in analysis.get("artifacts", []):
+    artifact_blocks = get_artifact_blocks(artifact_entries)
 
-        if isinstance(entry, dict):
-            name = entry["name"]
-            cfg = entry
-        else:
-            name = entry
-            cfg = {}
+    for block in artifact_blocks:
+        if block.scope == Scope.MEMBER:
+            for case in context.cases:
+                for member in case.members:
+                    block.execute(member)
 
-        if name not in ARTIFACTS_REGISTRY:
-            raise RuntimeError(f"Unknown deliverable '{name}'")
+        elif block.scope == Scope.CASE:
+            for case in context.cases:
+                block.execute(case)
 
-        func = ARTIFACTS_REGISTRY[name]
+        elif block.scope == Scope.STUDY:
+            block.execute(context)
 
-        check_artifact_requirements(func, results_store)
-
-        print(f"[ARIFACT] {name}")
-
-        func(context, cfg, results_store)
+    print("Analysis complete.")
 
 
 # ---------------------------------------------------------
@@ -166,13 +145,11 @@ def process(study_name):
 # ---------------------------------------------------------
 
 def main():
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("study_results_dir", help="results/<study>/")
+    parser.add_argument("study", help="results/<study>/")
+    cli_args = parser.parse_args()
 
-    args = parser.parse_args()
-
-    process(args.study_results_dir)
+    analyze(cli_args)
 
 
 if __name__ == "__main__":

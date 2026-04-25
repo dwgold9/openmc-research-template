@@ -16,6 +16,7 @@ default = {
 }
 
 
+
 def plot_slice(mc_obj, case_dir, name, **plot_kwargs):
     plot_kwargs = {**plot_kwargs, **default}
     plt.figure(figsize=(6.4*2, 4.8*2))
@@ -24,4 +25,5 @@ def plot_slice(mc_obj, case_dir, name, **plot_kwargs):
     axs.plot()
     plt.tight_layout()
     plt.savefig(f'{case_dir}/{name}', dpi=300)
+    plt.close()
 

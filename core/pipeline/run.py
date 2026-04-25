@@ -4,6 +4,8 @@ import os
 # ---------------------------------------------------------
 # run: execute simulation within case directory
 # ---------------------------------------------------------
-def run_simulation(case_dir):
-    os.chdir(case_dir)
-    mc.run(openmc_exec='openmc4d')
+def run_simulation(model, run_dir, openmc_exec) -> mc.StatePoint:
+    path = model.run(openmc_exec=openmc_exec,
+                     cwd=run_dir)
+    statepoint = mc.StatePoint(path)
+    return statepoint

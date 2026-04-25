@@ -1,6 +1,6 @@
 name: example
 metrics:
- - keff
+ - example
 
 artifacts:
   - flux_1D_plot:

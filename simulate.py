@@ -1,8 +1,5 @@
 import argparse
-import itertools
-import os
 from pathlib import Path
-import shutil
 import yaml
 import json
 
@@ -10,87 +7,92 @@ import json
 from core import models
 from core.models.registry import MODEL_REGISTRY, get_model_block
 
-# observables registration
+# tally registration
 from core import tallies
 from core.tallies.registry import TALLIES_REGISTRY, get_tally_blocks
 
+from core import metrics
+from core.metrics.registry import METRICS_REGISTRY, get_metric_blocks
+
 # pipeline stages
 from core import pipeline
-from core.pipeline.attach import attach_tallies
-from core.pipeline.assemble import assemble_xml
-from core.pipeline.run import run_simulation
-from core.pipeline.plot import plot_slice
-from core.pipeline.scrape import scrape_results
+from core.pipeline.case import expand_ensemble
+from core.pipeline.meta import StudyMeta
+
+## drivers
+from core.drivers import run_parametric, run_optimization
+
+## utils
+from core.utils import *
 
 
-# ---------------------------------------------------------
-# utility: cartesian expansion of parameter sweeps
-# ---------------------------------------------------------
+def normalize_config(cfg):
 
-def expand_parameters(param_dict):
-    """
-    Converts a dict of parameters into a list of concrete configs.
-    Scalars become length-1 lists.
-    """
-    if not param_dict:
-        return [{}]
+    cfg = dict(cfg)
 
-    keys = list(param_dict.keys())
-    values = []
+    # already new-style
+    if "study" in cfg or "parametric" in cfg:
+        return cfg
 
-    for k in keys:
-        v = param_dict[k]
-        if isinstance(v, (list, tuple)):
-            values.append(v)
+    parameters = cfg.get("parameters", {})
+
+    study = {}
+    variables = {}
+
+    for k, v in parameters.items():
+
+        if isinstance(v, (list, tuple)) and len(v) > 1:
+            variables[k] = v
         else:
-            values.append([v])
+            study[k] = v
 
-    combos = []
-    for prod in itertools.product(*values):
-        combos.append(dict(zip(keys, prod)))
+    cfg["study"] = study
 
-    return combos
+    if variables:
+        cfg["parametric"] = {
+            "mode": "outer",
+            "variables": variables,
+        }
+    
+    else:
+        cfg["parametric"] = {
+            "mode": "outer",
+            "variables": {},
+        }
 
+    # remove legacy
+    cfg.pop("parameters", None)
+
+    return cfg
 
 # ---------------------------------------------------------
-# utility: stable case naming
-# ---------------------------------------------------------
-
-def case_name(index):
-    return f"case_{index:04d}"
-
-
-# ---------------------------------------------------------
-# main orchestration
+# main
 # ---------------------------------------------------------
 
 def main(cli_args):
 
-    ## read command-line arguments
     cli_study_name = cli_args.study
     plot_only = cli_args.plot
+    isrun = not cli_args.tally
 
     studies_root = Path("studies")
-    # ------------------------
-    # load config
-    # ------------------------
-    config_path = studies_root / cli_study_name / "study.yaml"
-    with open(config_path, "r") as f:
+
+    study_yaml_path = studies_root / cli_study_name / "study.yaml"
+
+    with open(study_yaml_path, "r") as f:
         cfg = yaml.safe_load(f)
 
-    # -----------------------
-    # required fields
-    # -----------------------
+    cfg = normalize_config(cfg)
+
     study_name = cfg["name"]
     model_name = cfg["model"]
 
-    # -----------------------
-    # optional fields
-    # -----------------------
     tally_entries = cfg.get("tallies", [])
-    params = cfg.get("params", {})
+    study_params = cfg.get("study", {})
+    parametric = cfg.get("parametric", {})
+    optimization = cfg.get("optimization", None)
+    ensemble = cfg.get("ensemble", {})
 
-    # normalize plots
     plot_entries = cfg.get("plot", {})
     if isinstance(plot_entries, list):
         plots = plot_entries
@@ -99,87 +101,78 @@ def main(cli_args):
     else:
         raise TypeError("plot must be a dict or list")
 
-    # -----------------------
-    # read blocks
-    # -----------------------
     model_block = get_model_block(model_name)
     tally_blocks = get_tally_blocks(tally_entries)
-    # ------------------------
-    # prepare result directory
-    # ------------------------
+    metric_blocks = get_metric_blocks(cfg.get("metrics", []))
+
     runs_root = Path("runs") / study_name
-    cases_root = runs_root / "cases"
+    guard_runs_root(runs_root, cli_args.force, cli_args.resume)
 
-    cases_root.mkdir(parents=True, exist_ok=True)
+    if cli_args.resume:
+        handle_resume_with_revisioning(study_yaml_path, runs_root)
+    else:
+        freeze_study_yaml(study_yaml_path, runs_root)
 
-    # freeze config for reproducibility
-    shutil.copy(config_path, runs_root / "study_frozen.yaml")
+    members = expand_ensemble(ensemble)
 
-    # ------------------------
-    # expand parameter sweep
-    # ------------------------
-    cases = expand_parameters(params)
+    study_meta = StudyMeta(runs_root)
 
-    print(f"Study: {study_name}")
-    print(f"Model: {model_name}")
-    print(f"Total cases: {len(cases)}")
+    # ------------------ OPTIMIZATION ------------------
 
-    # ------------------------
-    # loop over cases
-    # ------------------------
-    for i, params in enumerate(cases):
+    if optimization:
 
-        name = case_name(i+1)
-        case_dir = cases_root / name
-        case_dir.mkdir(exist_ok=True)
-
-        # save parameter realization
-        with open(case_dir / "params.json", "w") as f:
-            json.dump(params, f, indent=2)
-
-        # ------------------------
-        # attach tallies
-        # ------------------------
-        model = model_block(params)
-        print(params)
-        for block in tally_blocks:
-            block.attach(model)
-
-        # ------------------------
-        # build model + xml
-        # ------------------------
-        assemble_xml(model, case_dir)
-
-        # ------------------------
-        # plot geometry
-        # ------------------------
-        for p in plots:
-            name, plot_cfg = next(iter(p.items()))
-            plot_slice(model, case_dir,
-                       name, **plot_cfg)
-        if plot_only:
-            continue
-
-        # ------------------------
-        # run simulation
-        # ------------------------
-        run_simulation(
-            case_dir=case_dir,
+        run_optimization(
+            study_params,
+            optimization,
+            study_meta,
+            model_block,
+            tally_blocks,
+            metric_blocks,
+            plots,
+            members,
+            runs_root,
+            plot_only,
+            isrun,
         )
 
-    print("Run complete.")
+        print("Execution complete.")
+        return
+
+    # ------------------ PARAMETRIC ------------------
+
+    run_parametric(
+        study_params,
+        parametric,
+        study_meta,
+        model_block,
+        tally_blocks,
+        metric_blocks,
+        plots,
+        members,
+        runs_root,
+        plot_only,
+        isrun,
+    )
+
+    print("Execution complete.")
 
 
 # ---------------------------------------------------------
 # CLI
 # ---------------------------------------------------------
 
-if __name__ == "__main__":
+def parse_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("study", help="Name of study")
-    parser.add_argument("-p", "--plot",
-                        action="store_true",
-                        help="Plot geometry only (no simulation)")
+    parser.add_argument("-p", "--plot", action="store_true")
+    parser.add_argument("-t", "--tally", action="store_true")
 
-    args = parser.parse_args()
-    main(args)
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    cli_args = parse_cli()
+    main(cli_args)
